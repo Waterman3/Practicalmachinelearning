@@ -1,0 +1,256 @@
+---
+title: "Are They Lifting Properly - the Development of a Model to Predict a Weightlifter's Motion Type from Accelerometer Measurements"
+author: "Warwick Taylor"
+date: "19 February 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## 0. Abstract 
+
+
+This report shows the development of a model to predict the type of motion performed by a weightlifter from measurements made by an accelerometer.
+
+Our analysis shows that the a model involving gradient boosting has an out of  
+sample error of 0.59% in performing this prediction.
+
+## 1. Background
+
+Six participants wearing accelerometers were asked to lift a 1.25kg dumbell in five different types of motions or classes - one class being the motion corresponding to the exact specification of the Unilateral Dumbell Biceps Curl and the others being incorrect. These classes were labelled and described as follows: 
+
+- exactly according to the specification (Class A), 
+- throwing the elbows to the front (Class B),
+- lifting the dumbbell only halfway (Class C),
+- lowering the dumbbell only halfway (Class D) and 
+- throwing the hips to the front (Class E).
+
+Each participant repeated each class of motion 10 times.
+
+The participants wore accelerometers on the belt, arm and forearm, and an accelerometer was also attached to the dumbell.
+
+More information is available at: 
+
+http://groupware.les.inf.puc-rio.br/har#ixzz4Yel0g0qr
+
+
+## 2. Outline of Method
+
+There ise test and training data for this study data from this study.
+
+The training data for this project is available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data is available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The following process was used to the develop the model
+
+1. Both sets of data were downloaded.
+2. The dimensions and format of the test data was investigated.
+3. The data was prepared by cleaning it and further dividing the training data 
+into training and validation datasets.
+4. Given the type of output variable, consideration was given to what might be 
+suitable predictors and all other columns of data were discarded from both the 
+training and test datasets.
+5. An initial model was considered and tried.
+6. Other models were chosen and tested until a suitable model was found.
+
+## 3. Running of the Process
+
+
+## 3.1 Acquisition of Data
+
+The testing and training data were loaded as datasets barbell.test and 
+train.test respectively using the following script
+```{r echo=TRUE}
+wtrain<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+wtest<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+download.file(wtrain,"weight_training")
+download.file(wtest,"weight_testing")
+barbell.train<-read.csv("weight_training")
+barbell.test<-read.csv("weight_testing")
+```
+
+# 3.2 Dimension and Format of the Data
+
+Using the commands dim and str on the training data as below  
+
+```{r echo=FALSE}
+dim(barbell.train)
+str(barbell.train)
+
+````
+showed that:
+
+1. the data consists of 159 possible predictors, the variable classe and 19620 records; and
+2. that there are a number of columns with not applicable data or data resulting from divide by
+zero error.
+
+The variable classe is the variable to be predicted and is a classification variable with the values
+A,B,C,D and E.
+
+## 3.3 Preparation of Data
+
+## 3.3.1 Cleaning Data
+
+To take out the columns of not applicable and divide by zero error data  
+the following script was run:
+
+```{r echo=FALSE}
+
+clean.Frame<-function(dataframe) {
+goodcols<-numeric(0)
+for (i in 1:ncol(dataframe))
+{
+   if ((any(is.na(dataframe[,i]))==FALSE)
+	&& (length(grep("DIV",dataframe[,i]))==0))
+	{
+          goodcols<-c(goodcols,i)
+	}
+}
+return(dataframe[,goodcols])
+}
+
+barbell_train<-clean.Frame(barbell.train)
+barbell_test<-clean.Frame(barbell.test)
+
+```
+## 3.3.2 Choosing Predictors
+
+The result of the str(barbell_train) shown above indicates that the dataset has
+some columns that may have no effect on the class of movement. These columns 
+have the names:
+X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp, new_window, and num_window.
+
+To decide whether use these variables as predictors the following pairs plot was peformed as per the code below:
+
+```{r echo=TRUE}
+
+featurePlot(x=barbell_train[,c("X","user_name", "raw_timestamp_part_1",
+"raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window")],
+ y=as.numeric(barbell_train$classe), plot="pairs")
+
+```
+
+The plots show no relationship between classe and these variables so they were removed from the dataset
+
+```{r echo=TRUE}
+barbell_train<-barbell_train[,8:ncol(barbell_train)]
+```
+
+## 3.3.3 Data for Validating Models
+
+To validate each model the training dataset was split into a smaller training dataset and a validation 
+dataset using createDataPartition
+
+```{r echo=TRUE}
+set.seed(1234)
+bartrain<-createDataPartition(barbell_train$classe,p=0.75,list=FALSE)
+barbell_training<-barbell_train[bartrain,]
+barbell_validation<-barbell_train[-bartrain,]
+```
+
+## 4. Selection and Testing of Models 
+
+## 4.1 Testing and Validation Procedure
+
+To test each model cross-validation was used. To avoid sampling with replacement
+and to help performance, the cross-validation involved splitting the training 
+data into folds. Too few folds could result in a model with bias whereas too 
+many folds would increase the variance of the results. Therefore the training 
+data was split into 10 folds and the model being tested on each of these using 
+the R command train. 
+
+Once a fitted model was derived a prediction was made using the model on 
+covariates from the validation dataset. These were compared with the classe 
+variable in the validation dataset.
+
+The variable to be predicted, classe is a classification variable so using 
+linear regression will not be suitable. Even converting classe to a numberic 
+value will not be useful for using liner regression, including generalised 
+linear models, as assigning a numeric value to classe and trying to fit a 
+linear model to derive it would imply that there are degrees of correctness in 
+the method of lifting a dumbell.
+
+The models to use in this situation are those used for classification. The 
+simplest of these is using a classification tree. Using the R function train 
+this can be achieved by using method rpart. The code and result are:
+```{r echo=TRUE}
+# Set up parameters for cross-validation
+trCont<-trainControl(method="cv",number=10)
+set.seed(1234)
+modFitTreeBar<-train(classe~., data=barbell_training, method="rpart",trControl=trCont)
+print(modFitTreeBar)
+```
+An accuracy of about 51% is better than guessing but will give the wrong result in almost half the cases. 
+
+Random forest models allow allow for many trees to be developed and tested, 
+often resulting in high accuracy. Therefore a random forest model was applied.
+
+The code for training data using a random forest model is
+```{r echo=TRUE}
+fitModRfBar<-train(x=barbell_training[,-ncol(barbell_training)], y=barbell_training$classe, data=barbell_training,
+method="rf", method="rf",trControl=trCont)
+```
+The accuracy is:
+```{r echo=TRUE}
+ print(fitModRfBar)
+```
+An accuracy of 99.28% is much better. The model was applied to the validation 
+data and compared with the variable classe in the validation data with the 
+result as follows:
+```{r echo=TRUE}
+
+predClassRF<-predict(fitModRfBar, newdata=barbell_validation)
+table(predClassRF,barbell_validation$classe)
+```
+This shows good concordance but there are still 31 cases where the type of 
+motion was not correctly predicted. This is an error rate of
+```{r echo=TRUE}
+(1-(sum(diag(table(predClassRF,barbell_validation$classe))[1:5])/length(predClassRF)))*100
+```
+ %.
+
+Boosting can be used in situations where
+there a lot of predictors and sometimes a boosting model can give a more 
+accurate prediction than a random forest model. A model involving gradient 
+boosting was tried.
+
+The code for doing this was:
+
+```{r echo=TRUE}
+set.seed(1234)
+ fitModGbmBar<-train(x=barbell_training[,-ncol(barbell_training)],
+y=barbell_training$classe, meihod="gbm", trControl=trCont, verbose=FALSE)
+
+```
+The accuracy can be found in the following summary
+```{r echo=TRUE}
+print(fitModGbmBar)
+```
+
+and is 99.29%, marginally better than that of the random forest model.
+
+When the model was applied to the validation data and the result compared to the
+variable classe in the validation data the result was as follows:
+
+```{r echo=TRUE}
+predClassGBM<-predict(fitModGbmBar, barbell_validation)
+table(predClassGBM,barbell_validation$classe)
+```
+
+There were 29 cases where the type of motion was predicted incorrectly. The
+error rate was:
+
+```{r echo=TRUE}
+(1-(sum(diag(table(predClassGBM,barbell_validation$classe))[1:5])/length(predClassGBM)))*100
+```
+
+  %, a little better than that of the random forest model. This is the estimatedout of sample error.
+
+
